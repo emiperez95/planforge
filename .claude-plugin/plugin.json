@@ -1,0 +1,26 @@
+{
+  "name": "planforge",
+  "version": "0.0.0",
+  "description": "Closed-loop human-AI coplanner for spec+diagram authoring. Browser-based iteration: agent generates HTML plan with editable Mermaid diagrams, user edits and sends, agent picks up changes and continues. Built for Claude Code.",
+  "author": {
+    "name": "Emiliano Perez",
+    "email": "emiliano.perez.mauri@gmail.com",
+    "url": "https://github.com/emiperez95"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/emiperez95/planforge",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/emiperez95/planforge.git"
+  },
+  "keywords": [
+    "claude-code",
+    "plugin",
+    "planning",
+    "diagrams",
+    "mermaid",
+    "human-in-the-loop",
+    "coplanner",
+    "spec"
+  ]
+}

@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Conventional Commits enforcement.
+# Reference: https://conventionalcommits.org/
+#
+# Allowed format:
+#   <type>(<optional scope>): <subject>
+#
+# <type> = feat | fix | docs | refactor | perf | test | build | ci | chore | style | revert
+# <scope> = lowercase, hyphens allowed
+# <subject> = 1..72 chars, lowercase first letter recommended (not enforced)
+#
+# Body and footer are free-form. Breaking changes use `!` after type/scope or
+# a `BREAKING CHANGE:` footer.
+
+set -euo pipefail
+
+commit_msg_file="$1"
+first_line="$(head -n 1 "$commit_msg_file")"
+
+# Allow merge / revert / fixup commits to pass through.
+if [[ "$first_line" =~ ^(Merge|Revert|fixup!|squash!) ]]; then
+    exit 0
+fi
+
+# Allow comments-only commit messages (git aborts these anyway).
+if [[ -z "${first_line// /}" ]]; then
+    exit 0
+fi
+
+pattern='^(feat|fix|docs|refactor|perf|test|build|ci|chore|style|revert)(\([a-z0-9][a-z0-9-]*\))?!?: .{1,72}$'
+
+if [[ ! "$first_line" =~ $pattern ]]; then
+    echo "" >&2
+    echo "✗ Commit message does not follow Conventional Commits." >&2
+    echo "" >&2
+    echo "Got:" >&2
+    echo "    $first_line" >&2
+    echo "" >&2
+    echo "Expected format:" >&2
+    echo "    <type>(<optional-scope>): <subject>" >&2
+    echo "" >&2
+    echo "Allowed types: feat fix docs refactor perf test build ci chore style revert" >&2
+    echo "Subject: 1..72 chars" >&2
+    echo "" >&2
+    echo "Examples:" >&2
+    echo "    feat(iterate-plan): add Layer A delta extraction" >&2
+    echo "    fix(server): handle SIGTERM during request" >&2
+    echo "    docs: clarify install steps in README" >&2
+    echo "    chore!: drop support for Python 3.10" >&2
+    echo "" >&2
+    exit 1
+fi
+
+exit 0
