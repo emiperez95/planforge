@@ -39,5 +39,4 @@ ehthumbs.db
 Desktop.ini
 
 # planforge runtime
-/tmp/planforge-*/
 *.pid
