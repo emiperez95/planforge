@@ -1,6 +1,6 @@
 # planforge — development plan
 
-This document captures the development roadmap for planforge. It is the **handoff artifact** for any agent (or human) picking up work after Phase 1 (the initial scaffold). Phase 1 is complete; phases 2–4 are the work ahead.
+This document captures the development roadmap for planforge. It is the **handoff artifact** for any agent (or human) picking up work. Phases 1 and 2 are complete — **v0.1.0 shipped 2026-05-31**, the loop runs end-to-end. The remaining phases (3–4) are upstream work in the separate thesis-research repo, not this one.
 
 The plan is opinionated about *what* and *why*, but conservative on *how*: implementation details (exact lines of code, exact library versions beyond the constraints below) are left to the implementer.
 
@@ -369,6 +369,13 @@ Refs: plan.md Phase 2d.
 
 ### Phase 2e — README, CHANGELOG, release
 
+**Status: done — v0.1.0 shipped 2026-05-31** (tagged `v0.1.0`, pushed). README
+rewritten with `--plugin-dir` install + `/planforge:forge` usage; CHANGELOG
+regenerated via `npx git-cliff` (git-cliff not installed globally); `plugin.json`
+bumped to 0.1.0. The optional narrative summary (step 4) was skipped to keep the
+CHANGELOG fully git-cliff-reproducible. A GitHub Release (step 7) is still
+optional/pending.
+
 1. Update `README.md` with real install + usage instructions.
 2. Bump `plugin.json` version `0.0.0` → `0.1.0`.
 3. Run `git cliff -o CHANGELOG.md --tag v0.1.0` to regenerate the changelog from commits.
@@ -405,7 +412,7 @@ Refs: plan.md Phase 2d.
 | 2b — server.py | ~0.5 day | **done** |
 | 2c — template.html + `--port` | ~1.5 days | **done** |
 | 2d — SKILL.md body | ~0.5 day | **done** |
-| 2e — README + CHANGELOG + release | ~0.5 day | next |
+| 2e — README + CHANGELOG + release | ~0.5 day | **done** |
 
 **Decision points:**
 - **Mermaid version (2c):** ✅ resolved — pinned **11.15.0** (latest), loaded as the ESM build from jsdelivr. Vendoring locally is a v0.2.0+ concern.
