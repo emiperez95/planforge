@@ -313,109 +313,39 @@ round-trip, unattended turn 1 → turn 2 auto-advance).
 
 ### Phase 2d — `SKILL.md` body
 
-This is the most important file in the plugin: it tells the agent exactly how to run the loop. Replaces the interim WIP body from Phase 2a.
+The body is the brain of the plugin: imperative instructions telling the agent
+how to drive the loop. The full text is in `skills/plan/SKILL.md` (the source of
+truth); this section records the as-built shape and the decisions behind it.
 
-**Frontmatter:** unchanged from Phase 2a.
+**Per-iteration flow encoded in SKILL.md:**
 
-**Body structure** (Markdown, imperative voice — written for the agent, not the user):
+1. **Generate** `/tmp/planforge-{run_id}/plan.html` from the template, replacing
+   only the `#initial-state` JSON (`{meta, text[], diagrams[]}`) with this turn's
+   state. Keep `id`s and `run_id` stable; set `turn` so the browser detects the
+   new version.
+2. **Spawn the server** with `run_in_background=true`.
+   - *Turn 1:* `--port 0` (auto); the browser opens. Read the background task's
+     output **once** to capture the bound port; remember it for the run.
+   - *Turn N>1:* `--port {port} --no-browser` — the open tab is polling that port
+     and reloads itself, so no new tab is spawned.
+3. **End the turn** with a short message. No polling; the user can chat in
+   parallel. A `<task-notification>` for the server's task resumes the agent.
+4. **Read** `/tmp/planforge-{run_id}/response.json`.
+5. **Process:** `iterate` → apply `full_state` + `user_notes`, increment turn,
+   loop; `approve` → regenerate `converged.html`, summarize in chat, exit.
 
-````markdown
-# plan — instructions
+**Decisions baked in:**
+- **Port handoff:** turn 1 auto-selects and the agent reads the port from the
+  background task output once (not polling); later turns reuse it. This is what
+  makes the browser auto-advance work.
+- **One tab:** `--no-browser` on turns 2+ prevents a new tab each turn.
+- **Logging path — resolves open question #1:** everything under
+  `/tmp/planforge-{run_id}/` (per-turn `iterations/turn-NN_*` and
+  `converged.html`). Zero config; copy out anything worth keeping. A durable,
+  configurable output location — and a saved record of the planning discussion —
+  is deferred (see Future work).
 
-You are running an iterative human-AI coplanner loop. Follow these steps each time
-the user invokes `/planforge:plan` or you decide to use this skill.
-
-## When to invoke
-
-Invoke when the user asks to draft a plan with diagrams, when they want to refine
-an existing plan visually, or when an upstream skill hands off a draft for human review.
-
-## Per-iteration workflow
-
-### Step 1 — Generate the plan HTML
-
-Read `${CLAUDE_PLUGIN_ROOT}/skills/plan/assets/template.html`. Substitute the
-placeholder block `<script type="application/json" id="initial-state">…</script>`
-with the current plan state: text sections and Mermaid diagrams.
-
-If this is turn 1, generate from the user's seed prompt and create a fresh
-run_id (UUID v4). On later turns, generate from the previous full_state +
-the user_notes the user submitted, reusing the same run_id.
-
-Write the result to `/tmp/planforge-{run_id}/plan.html`. Create the directory
-if needed.
-
-### Step 2 — Spawn the server (background)
-
-Use Bash with `run_in_background=true`:
-
-```bash
-python ${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/server.py \
-    --plan /tmp/planforge-{run_id}/plan.html \
-    --response /tmp/planforge-{run_id}/response.json \
-    --run-id {run_id}
-```
-
-This call returns immediately. The server opens the user's browser, serves
-the plan, and will exit when the user clicks Send or Approve. You do not
-need to manage the browser or the port — the server handles both.
-
-### Step 3 — End your turn
-
-Tell the user briefly: "Plan opened in your browser. Edit and click Send when
-ready. You can keep chatting with me here in parallel; I'll pick up your edits
-as soon as you send them." Then end the turn.
-
-Do not poll. Do not `BashOutput` to check progress. The user can chat with
-you while editing (each user message gives you a new turn); answer those
-normally without referencing the background process. When the user submits
-in the browser, you will receive a `<task-notification>` indicating the
-background bash completed. That notification triggers Step 4.
-
-### Step 4 — On notification, read the response
-
-When the harness fires the `<task-notification>` for this run's background
-bash, read `/tmp/planforge-{run_id}/response.json`.
-
-### Step 5 — Process the response
-
-If `action == "approve"`:
-  - Save the final HTML to a per-run `converged.html` in the case study directory
-    (or `/tmp/planforge-{run_id}/converged.html` if no case study path is set).
-  - Inform the user: "Plan approved. Final converged HTML saved to <path>."
-  - Exit the loop.
-
-If `action == "iterate"`:
-  - Read `full_state` and `user_notes` from the response.
-  - Compose a refined plan HTML incorporating the user's edits.
-  - If `user_notes` is non-empty, treat it as additional NL guidance from the user.
-  - Loop back to Step 1.
-
-## Logging
-
-After every iteration (including the final approve), write:
-
-- `experiments/{run}/iterations/turn-{NN}_plan.html` — the HTML the agent sent.
-- `experiments/{run}/iterations/turn-{NN}_response.json` — the user's response.
-
-The `{run}` directory is the experiment folder set by the user upstream
-(e.g., `case-studies/url-shortener/experiments/2026-05-26_v1.0_planning_sonnet-46/`).
-If unset, default to `/tmp/planforge-{run_id}/iterations/`.
-
-## Failure modes
-
-- **Browser open failed.** If `webbrowser.open()` fails (headless / SSH session),
-  the server logs the URL to stdout. The agent should read the background-bash
-  output file once after spawning the server to surface this URL to the user
-  as a fallback.
-- **Server error.** Check for `/tmp/planforge-{run_id}/server.err`; surface
-  contents to the user if present.
-- **Orphan server.** If the user closes the browser without submitting, the
-  server runs indefinitely (v0.1.0 has no idle timer). The agent is waiting
-  on a notification that may never fire. If the user explicitly asks to
-  cancel, kill the background bash via its shell ID. A configurable
-  server-side idle timeout is a v0.2.0+ refinement.
-````
+**Status: done.**
 
 **Commit:**
 
@@ -463,19 +393,19 @@ Refs: plan.md Phase 2d.
 
 **~3 working days** for one person.
 
-| Sub-phase | Effort |
-|---|---|
+| Sub-phase | Effort | Status |
+|---|---|---|
 | 2a — Skill scaffold | ~10 min | **done** |
 | 2b — server.py | ~0.5 day | **done** |
 | 2c — template.html + `--port` | ~1.5 days | **done** |
-| 2d — SKILL.md body | ~0.5 day | next |
-| 2e — README + CHANGELOG + release | ~0.5 day | |
+| 2d — SKILL.md body | ~0.5 day | **done** |
+| 2e — README + CHANGELOG + release | ~0.5 day | next |
 
 **Decision points:**
 - **Mermaid version (2c):** ✅ resolved — pinned **11.15.0** (latest), loaded as the ESM build from jsdelivr. Vendoring locally is a v0.2.0+ concern.
 - **Template structure (2c):** ✅ resolved — single self-contained file (inline CSS + module JS), not separate `client.js` / `styles.css`.
 - **Browser auto-refresh between turns (2c):** ✅ resolved (open question #2) — pinned port per run + poll-and-reload on turn change.
-- **Logging path resolution (2d):** open question #1 below — still to decide.
+- **Logging path (2d):** ✅ resolved (open question #1) — everything under `/tmp/planforge-{run_id}/`; no config. Durable output is deferred (see Future work).
 
 ---
 
@@ -514,11 +444,31 @@ If you are an agent picking up this plan, you do not need to read the thesis to 
 
 These are not blockers but should be revisited as Phase 2 lands:
 
-1. **Run logging path resolution (Phase 2d).** SKILL.md proposes `experiments/{run}/iterations/` but how does the skill know `{run}`? Either (a) the user/caller passes it as an arg in the seed prompt, or (b) the skill defaults to `/tmp/planforge-{run_id}/iterations/` and the user copies after. Decide before v0.1.0.
+1. ✅ **Run logging path resolution (Phase 2d) — RESOLVED.** Everything goes under `/tmp/planforge-{run_id}/` (per-turn `iterations/turn-NN_*` and `converged.html`). Zero config; the user copies out anything worth keeping. A durable, configurable output location is deferred to Future work.
 2. ✅ **Browser auto-refresh on next turn (Phase 2c) — RESOLVED.** Pinned port per run (`server.py --port`) + the page polls `GET /` and reloads when a different turn number appears. No SSE, no manual refresh, no per-turn URL. Verified in-browser.
 3. ✅ **Mermaid syntax error handling (Phase 2c) — RESOLVED.** Invalid DSL shows an inline error in that diagram's preview and Send stays enabled — the raw DSL is sent anyway so the agent can help fix it. Orphan nodes from a failed render are cleaned up. Verified in-browser.
 4. **Multiple concurrent runs.** Per-run UUID handles isolation, but is there a UI / list-runs command? Defer to v0.2.0+ unless v0.1.0 testing reveals friction.
 5. **Orphan server protection.** v0.1.0 has no server-side idle timer; if the user closes the browser without submitting, the server runs forever and the agent waits on a notification that never fires. Add a configurable idle timeout (default ~30 min) in v0.2.0+. For v0.1.0, document the manual-cancel workaround in SKILL.md.
+
+## Future work (post-v0.1.0)
+
+Deferred intentionally to keep v0.1.0 small. Not blockers; revisit as real use
+surfaces the need.
+
+- **Durable planning-discussion log.** v0.1.0 keeps per-turn artifacts in
+  `/tmp/` only. Add an opt-in, configurable output location that persists the
+  full planning record — every turn's plan + the user's edits/notes, i.e. the
+  *discussion* between user and agent — to a chosen directory (e.g. a thesis
+  experiment folder), so a run can be studied or cited after the fact.
+- **Server idle timeout.** No idle timer today (open question #5): a browser
+  closed without submitting leaves an orphan server and the agent waiting
+  forever. Add a configurable idle timeout (default ~30 min) that writes a
+  `{"error":"timeout"}` response and exits.
+- **Multi-run management.** A `list-runs` / status surface if concurrent runs
+  cause friction (open question #4).
+- **Richer editing.** CodeMirror for prose/DSL, vendored Mermaid (no CDN),
+  and — further out — visual node/edge diagram editing with structural deltas
+  and stable diagram IDs across edits.
 
 ## Effort summary
 
