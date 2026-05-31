@@ -40,3 +40,6 @@ Desktop.ini
 
 # planforge runtime
 *.pid
+
+# Local Claude Code dev/test config (machine-specific; not part of the plugin)
+.claude/
