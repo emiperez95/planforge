@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>planforge — plan</title>
+  <style>
+    :root {
+      --bg: #f6f7f9;
+      --card: #ffffff;
+      --ink: #1f2329;
+      --muted: #6b7280;
+      --line: #e3e6ea;
+      --accent: #2563eb;
+      --accent-ink: #ffffff;
+      --ok: #16a34a;
+      --err: #b91c1c;
+      --err-bg: #fef2f2;
+      --radius: 8px;
+      --maxw: 860px;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--ink);
+      line-height: 1.5;
+      padding-bottom: 96px; /* room for the sticky action bar */
+    }
+    header {
+      position: sticky; top: 0; z-index: 5;
+      background: var(--card);
+      border-bottom: 1px solid var(--line);
+      padding: 14px 20px;
+      display: flex; align-items: baseline; gap: 12px; flex-wrap: wrap;
+    }
+    header h1 { font-size: 1.15rem; margin: 0; flex: 1 1 auto; }
+    .badge {
+      font-size: 0.72rem; font-weight: 600; letter-spacing: 0.02em;
+      color: var(--muted); background: var(--bg);
+      border: 1px solid var(--line); border-radius: 999px;
+      padding: 2px 10px; white-space: nowrap;
+    }
+    main { max-width: var(--maxw); margin: 0 auto; padding: 22px 20px 0; }
+    .section-title {
+      font-size: 0.78rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.06em; color: var(--muted);
+      margin: 26px 2px 10px;
+    }
+    .block {
+      background: var(--card);
+      border: 1px solid var(--line);
+      border-radius: var(--radius);
+      padding: 14px 16px;
+      margin-bottom: 14px;
+    }
+    .block > label {
+      display: block; font-weight: 600; font-size: 0.92rem;
+      margin-bottom: 8px;
+    }
+    textarea {
+      width: 100%; resize: vertical;
+      font: inherit; color: var(--ink);
+      padding: 10px 12px;
+      border: 1px solid var(--line); border-radius: 6px;
+      background: #fcfcfd;
+    }
+    .block.diagram textarea {
+      font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;
+      font-size: 0.86rem;
+    }
+    textarea:focus { outline: 2px solid var(--accent); outline-offset: -1px; border-color: var(--accent); }
+    .preview {
+      margin-top: 10px; padding: 12px;
+      border: 1px dashed var(--line); border-radius: 6px;
+      background: #fff; overflow-x: auto;
+      display: flex; justify-content: center;
+    }
+    .preview svg { max-width: 100%; height: auto; }
+    .preview.error {
+      display: block; justify-content: initial;
+      color: var(--err); background: var(--err-bg);
+      border: 1px solid #fecaca;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.82rem; white-space: pre-wrap;
+    }
+    .muted { color: var(--muted); font-style: italic; }
+    footer {
+      position: fixed; left: 0; right: 0; bottom: 0; z-index: 5;
+      background: var(--card); border-top: 1px solid var(--line);
+      padding: 14px 20px;
+      display: flex; gap: 12px; justify-content: center;
+    }
+    button {
+      font: inherit; font-weight: 600; cursor: pointer;
+      padding: 10px 22px; border-radius: 6px; border: 1px solid transparent;
+    }
+    .btn-primary { background: var(--accent); color: var(--accent-ink); }
+    .btn-primary:hover { filter: brightness(1.05); }
+    .btn-secondary { background: var(--card); color: var(--accent); border-color: var(--accent); }
+    .btn-secondary:hover { background: #eff4ff; }
+    #overlay {
+      position: fixed; inset: 0; z-index: 50; display: none;
+      align-items: center; justify-content: center; flex-direction: column; gap: 16px;
+      background: rgba(246, 247, 249, 0.92);
+      backdrop-filter: blur(2px);
+      text-align: center; padding: 24px;
+    }
+    #overlay-msg { font-size: 1.05rem; max-width: 420px; }
+    .spinner {
+      width: 30px; height: 30px; border-radius: 50%;
+      border: 3px solid var(--line); border-top-color: var(--accent);
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+  </style>
+</head>
+<body>
+  <header>
+    <h1 id="plan-title">Plan</h1>
+    <span class="badge" id="turn-badge">turn —</span>
+    <span class="badge" id="run-badge">—</span>
+  </header>
+
+  <main>
+    <div class="section-title" id="text-heading" hidden>Sections</div>
+    <div id="text-sections"></div>
+
+    <div class="section-title" id="diagram-heading" hidden>Diagrams</div>
+    <div id="diagram-sections"></div>
+
+    <div class="section-title">Notes for the agent (optional)</div>
+    <div class="block">
+      <textarea id="notes" rows="3" placeholder="Anything you want to tell the agent about these edits…"></textarea>
+    </div>
+  </main>
+
+  <footer>
+    <button class="btn-primary" id="btn-send">Send to agent</button>
+    <button class="btn-secondary" id="btn-approve">Approve &amp; finalize</button>
+  </footer>
+
+  <div id="overlay">
+    <div class="spinner"></div>
+    <div id="overlay-msg"></div>
+  </div>
+
+  <!--
+    The agent replaces the JSON inside the initial-state script block below
+    with the current plan state for this turn. Schema:
+      {
+        "meta":     { "title": str, "turn": int, "run_id": str },
+        "text":     [ { "id": str, "label": str, "value": str }, ... ],
+        "diagrams": [ { "id": str, "label": str, "value": str (mermaid DSL) }, ... ]
+      }
+    The sample below renders a tiny example so the template is viewable on its own.
+  -->
+  <script id="initial-state" type="application/json">
+  {
+    "meta": { "title": "URL shortener — plan", "turn": 1, "run_id": "sample00-0000-0000-0000-000000000000" },
+    "text": [
+      { "id": "overview", "label": "Overview", "value": "A service that turns long URLs into short codes and redirects on lookup." },
+      { "id": "goals", "label": "Goals", "value": "- Sub-100ms redirects\n- Collision-free short codes\n- Basic click analytics" }
+    ],
+    "diagrams": [
+      { "id": "architecture", "label": "Architecture", "value": "graph LR\n  U[User] --> A[API]\n  A --> DB[(Store)]\n  A --> C[(Cache)]" }
+    ]
+  }
+  </script>
+
+  <script type="module">
+    import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@11.15.0/dist/mermaid.esm.min.mjs';
+    mermaid.initialize({ startOnLoad: false, theme: 'default', securityLevel: 'strict' });
+
+    const STATE = JSON.parse(document.getElementById('initial-state').textContent);
+
+    // ---- header ----
+    document.getElementById('plan-title').textContent = STATE.meta?.title || 'Plan';
+    document.getElementById('turn-badge').textContent = 'turn ' + (STATE.meta?.turn ?? '—');
+    document.getElementById('run-badge').textContent = (STATE.meta?.run_id || '').slice(0, 8) || '—';
+
+    // ---- text sections ----
+    const textWrap = document.getElementById('text-sections');
+    const textItems = STATE.text || [];
+    if (textItems.length) document.getElementById('text-heading').hidden = false;
+    for (const item of textItems) {
+      const block = document.createElement('div');
+      block.className = 'block';
+      const label = document.createElement('label');
+      label.textContent = item.label || item.id;
+      label.htmlFor = 'text-' + item.id;
+      const ta = document.createElement('textarea');
+      ta.id = 'text-' + item.id;
+      ta.dataset.kind = 'text';
+      ta.dataset.itemId = item.id;
+      ta.value = item.value || '';
+      ta.rows = Math.min(16, Math.max(3, (item.value || '').split('\n').length + 1));
+      block.append(label, ta);
+      textWrap.append(block);
+    }
+
+    // ---- diagrams ----
+    const diagWrap = document.getElementById('diagram-sections');
+    const diagItems = STATE.diagrams || [];
+    if (diagItems.length) document.getElementById('diagram-heading').hidden = false;
+    let renderSeq = 0;
+    for (const item of diagItems) {
+      const block = document.createElement('div');
+      block.className = 'block diagram';
+      const label = document.createElement('label');
+      label.textContent = item.label || item.id;
+      label.htmlFor = 'diagram-' + item.id;
+      const ta = document.createElement('textarea');
+      ta.id = 'diagram-' + item.id;
+      ta.dataset.kind = 'diagram';
+      ta.dataset.itemId = item.id;
+      ta.spellcheck = false;
+      ta.value = item.value || '';
+      ta.rows = Math.min(20, Math.max(4, (item.value || '').split('\n').length + 1));
+      const preview = document.createElement('div');
+      preview.className = 'preview';
+      block.append(label, ta, preview);
+      diagWrap.append(block);
+
+      const render = () => renderDiagram(ta.value, preview);
+      ta.addEventListener('input', debounce(render, 250));
+      render();
+    }
+
+    async function renderDiagram(dsl, preview) {
+      if (!dsl.trim()) {
+        preview.className = 'preview';
+        preview.innerHTML = '<span class="muted">(empty diagram)</span>';
+        return;
+      }
+      const id = 'mmd-' + (renderSeq++);
+      try {
+        const { svg } = await mermaid.render(id, dsl);
+        preview.className = 'preview';
+        preview.innerHTML = svg;
+      } catch (err) {
+        preview.className = 'preview error';
+        preview.textContent = 'Mermaid error:\n' + (err?.message || String(err));
+        // Mermaid can leave an orphan node behind on a failed parse.
+        document.getElementById(id)?.remove();
+        document.getElementById('d' + id)?.remove();
+      }
+    }
+
+    // ---- submit ----
+    const overlay = document.getElementById('overlay');
+    const overlayMsg = document.getElementById('overlay-msg');
+    const spinner = overlay.querySelector('.spinner');
+    function showOverlay(msg, spin) {
+      overlayMsg.textContent = msg;
+      spinner.style.display = spin ? '' : 'none';
+      overlay.style.display = 'flex';
+    }
+
+    function collectState() {
+      const text = {}, diagrams = {};
+      for (const t of document.querySelectorAll('textarea[data-kind="text"]')) text[t.dataset.itemId] = t.value;
+      for (const t of document.querySelectorAll('textarea[data-kind="diagram"]')) diagrams[t.dataset.itemId] = t.value;
+      return { text, diagrams };
+    }
+
+    let submitting = false;
+    async function submit(action) {
+      if (submitting) return;
+      submitting = true;
+      showOverlay(action === 'approve' ? 'Finalizing…' : 'Sending…', true);
+      const payload = {
+        run_id: STATE.meta?.run_id,
+        turn: STATE.meta?.turn,
+        action,
+        full_state: collectState(),
+        user_notes: document.getElementById('notes').value,
+        timestamp: new Date().toISOString(),
+      };
+      try {
+        const resp = await fetch('/submit', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        if (!resp.ok && resp.status !== 204) throw new Error('server returned ' + resp.status);
+      } catch (err) {
+        showOverlay('Send failed: ' + (err?.message || err) + '. Is the agent still running?', false);
+        submitting = false;
+        return;
+      }
+      if (action === 'approve') {
+        showOverlay('Plan approved and finalized. You can close this tab.', false);
+      } else {
+        showOverlay('Sent. Waiting for the next version of the plan…', true);
+        pollForNextTurn();
+      }
+    }
+
+    document.getElementById('btn-send').addEventListener('click', () => submit('iterate'));
+    document.getElementById('btn-approve').addEventListener('click', () => submit('approve'));
+
+    // ---- cross-turn auto-advance ----
+    // After an iterate-send, this server exits and the agent starts the next
+    // turn's server on the SAME port. Poll until a server answers with a
+    // DIFFERENT turn number, then reload into the new plan. The turn check
+    // guards against the brief window where the just-exited server still answers.
+    function pollForNextTurn() {
+      const myTurn = STATE.meta?.turn;
+      const tick = async () => {
+        try {
+          const resp = await fetch('/', { cache: 'no-store' });
+          if (resp.ok) {
+            const nextTurn = extractTurn(await resp.text());
+            if (nextTurn !== null && nextTurn !== myTurn) { location.reload(); return; }
+          }
+        } catch (_) { /* no server between turns — keep polling */ }
+        setTimeout(tick, 1200);
+      };
+      setTimeout(tick, 1200);
+    }
+
+    function extractTurn(html) {
+      // Parse the fetched document properly rather than regexing raw HTML — a
+      // regex would also match the literal tag name inside this file's comments.
+      try {
+        const doc = new DOMParser().parseFromString(html, 'text/html');
+        const el = doc.getElementById('initial-state');
+        if (!el) return null;
+        return JSON.parse(el.textContent).meta.turn;
+      } catch (_) { return null; }
+    }
+
+    function debounce(fn, ms) {
+      let t;
+      return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
+    }
+  </script>
+</body>
+</html>

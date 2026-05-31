@@ -32,6 +32,7 @@ import os
 import socketserver
 import sys
 import threading
+import time
 import traceback
 import webbrowser
 from pathlib import Path
@@ -103,6 +104,28 @@ class Handler(http.server.BaseHTTPRequestHandler):
         pass
 
 
+def _bind_server(port: int, plan_path: Path, response_path: Path) -> PlanServer:
+    """Bind the server, retrying a few times when a specific port is requested.
+
+    Across turns the skill reuses one port per run so the browser tab can poll
+    the same URL and auto-advance. The previous turn's server has normally
+    exited well before the next binds, but a short retry covers the handoff
+    window if the OS is still releasing the socket. Port 0 (auto-select) never
+    collides, so it is not retried.
+    """
+    attempts = 1 if port == 0 else 6
+    last_exc: OSError | None = None
+    for attempt in range(attempts):
+        try:
+            return PlanServer(("127.0.0.1", port), Handler, plan_path, response_path)
+        except OSError as exc:
+            last_exc = exc
+            if attempt < attempts - 1:
+                time.sleep(0.3)
+    assert last_exc is not None
+    raise last_exc
+
+
 def _write_json_atomic(path: Path, data: object) -> None:
     """Write ``data`` as pretty JSON, atomically (write temp + os.replace)."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -116,6 +139,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--plan", required=True, type=Path, help="path to plan.html to serve")
     parser.add_argument("--response", required=True, type=Path, help="path to write response.json")
     parser.add_argument("--run-id", required=True, help="run UUID (for logging / error file)")
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=0,
+        help="port to bind (default 0 = auto-select; reuse one port per run "
+        "across turns so the browser can auto-advance)",
+    )
     parser.add_argument(
         "--no-browser",
         action="store_true",
@@ -134,7 +164,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.response.exists():
             args.response.unlink()
 
-        with PlanServer(("127.0.0.1", 0), Handler, args.plan, args.response) as httpd:
+        with _bind_server(args.port, args.plan, args.response) as httpd:
             port = httpd.server_address[1]
             url = f"http://127.0.0.1:{port}/"
             print(f"planforge: serving plan on {url} (run {args.run_id})", flush=True)
