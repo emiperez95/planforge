@@ -1,10 +1,10 @@
 ---
-name: plan
+name: forge
 description: Use when the user wants to collaboratively draft or refine a software plan that would benefit from diagrams and iterative editing before being locked in. Skip for plain-text outlines, simple lists, or one-shot planning where a single written response is enough.
 disable-model-invocation: false
 ---
 
-# plan — instructions
+# forge — instructions
 
 You are running a closed-loop human-AI coplanner. You generate an HTML plan
 (prose sections + Mermaid diagrams), the user edits it in their browser and
@@ -31,7 +31,7 @@ All run files live under `/tmp/planforge-{run_id}/` (create it if needed).
 
 ### Step 1 — Generate the plan HTML
 
-Read `${CLAUDE_PLUGIN_ROOT}/skills/plan/assets/template.html`. Replace **only**
+Read `${CLAUDE_PLUGIN_ROOT}/skills/forge/assets/template.html`. Replace **only**
 the JSON inside the `<script id="initial-state" type="application/json"> … </script>`
 block with this turn's state; leave the rest of the file unchanged:
 
@@ -57,7 +57,7 @@ Write the result to `/tmp/planforge-{run_id}/plan.html`.
 `run_in_background=true`:
 
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/server.py \
+python3 ${CLAUDE_PLUGIN_ROOT}/skills/forge/scripts/server.py \
     --plan     /tmp/planforge-{run_id}/plan.html \
     --response /tmp/planforge-{run_id}/response.json \
     --run-id   {run_id} \
@@ -75,7 +75,7 @@ fallback in case auto-open failed.
 polling and will reload itself). Add `--no-browser` and the saved port:
 
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/skills/plan/scripts/server.py \
+python3 ${CLAUDE_PLUGIN_ROOT}/skills/forge/scripts/server.py \
     --plan     /tmp/planforge-{run_id}/plan.html \
     --response /tmp/planforge-{run_id}/response.json \
     --run-id   {run_id} \

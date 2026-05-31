@@ -43,7 +43,7 @@ if [[ ! "$first_line" =~ $pattern ]]; then
     echo "Subject: 1..72 chars" >&2
     echo "" >&2
     echo "Examples:" >&2
-    echo "    feat(iterate-plan): add Layer A delta extraction" >&2
+    echo "    feat(forge): add Layer A delta extraction" >&2
     echo "    fix(server): handle SIGTERM during request" >&2
     echo "    docs: clarify install steps in README" >&2
     echo "    chore!: drop support for Python 3.10" >&2

@@ -105,6 +105,12 @@ References to "v0.2.0+" in later sections indicate deferred features beyond the 
 
 Phase 2 has five sub-phases (2a → 2e). They build sequentially: each needs the previous before it can be exercised end-to-end. Sub-phase boundaries are also commit boundaries.
 
+> **Naming note.** The skill was originally named `plan` and renamed to **`forge`**
+> (invoked `/planforge:forge`) to avoid colliding with Claude Code's native plan
+> mode. The commit-message blockquotes below are kept verbatim and use the
+> historical `feat(plan):` scope (those commits are already in git history);
+> future skill commits use the `forge` scope.
+
 ### Pre-step: retroactive v0.0.0 tag
 
 Before any Phase 2 commits, retroactively tag the existing initial scaffold commit as v0.0.0 so the version history is well-formed:
@@ -123,7 +129,7 @@ git push origin v0.0.0
 **Files to create:**
 
 ```
-skills/plan/
+skills/forge/
 └── SKILL.md
 ```
 
@@ -133,14 +139,14 @@ skills/plan/
 
 ```yaml
 ---
-name: plan
+name: forge
 description: Use when the user wants to collaboratively draft or refine a software plan that would benefit from diagrams and iterative editing before being locked in. Skip for plain-text outlines, simple lists, or one-shot planning where a single written response is enough.
 disable-model-invocation: false
 ---
 ```
 
 Notes on each field:
-- `name: plan` — invoked as `/planforge:plan` (the plugin name from `plugin.json` provides the namespace).
+- `name: forge` — invoked as `/planforge:forge` (the plugin name from `plugin.json` provides the namespace).
 - `description` — a routing signal for autonomous invocation. Tells Claude *when* to fire the skill, not *what* it does. The "Skip for…" clause prevents false positives on lightweight planning requests.
 - `disable-model-invocation: false` — lets Claude autonomously invoke when the description matches. Confirmed against the [skills docs](https://code.claude.com/docs/en/skills.md): this field controls discovery/autonomous-loading only, not re-execution within an active session.
 - `allowed-tools` — intentionally omitted. Skill inherits the agent's full tool set. Tighten in a later phase once Phase 2 reveals exactly what's needed.
@@ -148,14 +154,14 @@ Notes on each field:
 **SKILL.md body (interim — replaced in Phase 2d):**
 
 ```markdown
-# plan (WIP)
+# forge (WIP)
 
 This skill is part of **planforge** — a closed-loop human-AI coplanner for
 software plans that mix prose and diagrams. The skill is **not yet functional
 in this version** (between Phase 2a and Phase 2d).
 
 If invoked, do not attempt to run the loop. Instead, inform the user that
-`/planforge:plan` is not yet functional and point them at `plan.md` in the
+`/planforge:forge` is not yet functional and point them at `plan.md` in the
 repo root for status and roadmap.
 ```
 
@@ -314,7 +320,7 @@ round-trip, unattended turn 1 → turn 2 auto-advance).
 ### Phase 2d — `SKILL.md` body
 
 The body is the brain of the plugin: imperative instructions telling the agent
-how to drive the loop. The full text is in `skills/plan/SKILL.md` (the source of
+how to drive the loop. The full text is in `skills/forge/SKILL.md` (the source of
 truth); this section records the as-built shape and the decisions behind it.
 
 **Per-iteration flow encoded in SKILL.md:**

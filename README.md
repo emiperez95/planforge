@@ -8,7 +8,7 @@
 
 ## What it is
 
-A [Claude Code](https://claude.com/claude-code) plugin that provides a `iterate-plan` skill. The skill orchestrates a closed feedback loop between the agent and a human collaborator working on a software plan:
+A [Claude Code](https://claude.com/claude-code) plugin that provides a `forge` skill (invoked as `/planforge:forge`). The skill orchestrates a closed feedback loop between the agent and a human collaborator working on a software plan:
 
 1. Agent generates an initial HTML artifact containing the plan (text sections + Mermaid diagrams)
 2. The skill launches a local HTTP server (via `Bash run_in_background=true`) and opens the browser detached
