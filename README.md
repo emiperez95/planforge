@@ -1,49 +1,73 @@
 # planforge
 
-> Closed-loop human-AI coplanner for spec + diagram authoring. Browser-based iteration: agent generates an HTML plan with editable Mermaid diagrams, user edits and sends, agent picks up the changes and continues. Built for Claude Code.
+> Closed-loop human-AI coplanner for spec + diagram authoring. The agent generates an HTML plan with editable Mermaid diagrams, you edit and send, the agent picks up the changes and continues. Built for Claude Code.
 
 ## Status
 
-🚧 **v0.0.0 — scaffold only.** Not yet functional. See [`plan.md`](./plan.md) for the development roadmap.
+✅ **v0.1.0 — first functional release.** The loop runs end-to-end. See [`plan.md`](./plan.md) for the roadmap and what's next.
 
 ## What it is
 
-A [Claude Code](https://claude.com/claude-code) plugin that provides a `forge` skill (invoked as `/planforge:forge`). The skill orchestrates a closed feedback loop between the agent and a human collaborator working on a software plan:
+A [Claude Code](https://claude.com/claude-code) plugin that provides a `forge` skill (invoked as `/planforge:forge`). It runs a closed feedback loop between the agent and you:
 
-1. Agent generates an initial HTML artifact containing the plan (text sections + Mermaid diagrams)
-2. The skill launches a local HTTP server (via `Bash run_in_background=true`) and opens the browser detached
-3. The human reads, edits text, modifies diagrams, clicks "Send to agent"
-4. The browser POSTs a structured delta to the local server
-5. The server writes the response to disk and exits — Claude Code notifies the agent automatically
-6. The agent picks up the changes, refines the plan, repeats — until the human clicks "Approve & finalize"
+1. The agent generates an HTML plan — prose sections + Mermaid diagrams — and writes it to disk.
+2. The skill launches a local stdlib HTTP server in the background and opens the page in your browser.
+3. You read, edit the prose, and edit the Mermaid diagrams (they re-render live). Meanwhile you can keep chatting with the agent in parallel.
+4. You click **Send to agent** (or **Approve & finalize**). The browser POSTs the full edited plan state to the local server.
+5. The server writes the response to disk and exits — the background task completing notifies the agent automatically (no polling).
+6. The agent picks up your edits, refines the plan, and serves the next version (your tab auto-advances). The loop continues until you **Approve**.
 
-No API keys to manage (the plugin reuses the agent's existing Claude Code session). Distributable via the Claude Code plugin marketplace.
+No API keys to manage — the plugin reuses the agent's existing Claude Code session.
 
 ## Why
 
-Most diagram-as-spec workflows force users into either: pure-text iteration (no visual editing) or out-of-band tooling (Figma + paste back into chat). planforge closes the loop: rendered diagrams that you can edit, with automatic round-trip back to the agent.
+Most diagram-as-spec workflows force you into either pure-text iteration (no visual editing) or out-of-band tooling (Figma, then paste back into chat). planforge closes the loop: rendered diagrams you can edit, with automatic round-trip back to the agent.
 
-Built originally to support empirical work on diagram-driven AI coding pipelines. Generalizes to any human-AI co-creation task where the artifact has both structured (diagrams, code, JSON) and prose components.
+Built originally to support empirical work on diagram-driven AI coding pipelines. It generalizes to any human-AI co-creation task whose artifact mixes structured parts (diagrams, code, JSON) with prose.
+
+## Requirements
+
+- [Claude Code](https://claude.com/claude-code)
+- Python 3.10+ (the local server is stdlib-only — no pip installs)
+- Internet access for the first render (Mermaid loads from a CDN; local vendoring is planned)
 
 ## Install
 
-*Not yet available — pending v0.1.0 release. Installation instructions will land here.*
+planforge isn't on a marketplace yet. For v0.1.0, load it from a local clone:
+
+```bash
+git clone https://github.com/emiperez95/planforge.git
+claude --plugin-dir ./planforge
+```
+
+`--plugin-dir` loads the plugin for that Claude Code session. Marketplace distribution is planned for a later release.
 
 ## Usage
 
-*Coming with v0.1.0.*
+In a Claude Code session with the plugin loaded:
+
+```
+/planforge:forge plan a URL shortener service
+```
+
+The agent drafts a plan and opens it in your browser. Edit the prose and Mermaid diagrams, then:
+
+- **Send to agent** — hand your edits back; the agent refines and serves the next turn (your tab auto-advances).
+- **Approve & finalize** — end the loop; the agent saves the final `converged.html`.
+
+Per-run artifacts (each turn's HTML + your responses, plus the final `converged.html`) are written under `/tmp/planforge-<run_id>/`.
 
 ## Development
 
-See [`plan.md`](./plan.md) for the phased development roadmap (phases 2–5). Phase 1 (scaffold) is complete.
+See [`plan.md`](./plan.md) for the phased roadmap. Phase 2 (functional v0.1.0) is complete; remaining work and deferred features are tracked there.
 
-Contributions follow [Conventional Commits](https://conventionalcommits.org/). Install the commit-msg hook:
+Contributions follow [Conventional Commits](https://conventionalcommits.org/). Enable the commit-msg hook:
 
 ```bash
 git config core.hooksPath .githooks
 ```
 
-CHANGELOG is generated via [git-cliff](https://git-cliff.org/) from commit history.
+The CHANGELOG is regenerated from commit history via [git-cliff](https://git-cliff.org/) at each release.
 
 ## License
 
