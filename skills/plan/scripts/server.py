@@ -1,0 +1,173 @@
+#!/usr/bin/env python3
+"""planforge plan server.
+
+Serves a single self-contained ``plan.html`` to the user's browser, waits for
+the user to submit their edits, writes the submission to a response file, and
+exits.
+
+This process is spawned by the ``plan`` skill via Claude Code's Bash tool with
+``run_in_background=true``. When it exits — after the user clicks *Send* or
+*Approve* in the browser — the background bash terminates, the harness notifies
+the agent, and the agent reads the response file to continue the loop.
+
+stdlib only; no external dependencies. Python 3.10+.
+
+CLI::
+
+    python3 server.py \\
+        --plan     /tmp/planforge-<run_id>/plan.html \\
+        --response /tmp/planforge-<run_id>/response.json \\
+        --run-id   <run_id>
+
+The server binds 127.0.0.1 on an auto-selected free port and opens the browser
+itself, so the caller never needs to know the port.
+"""
+
+from __future__ import annotations
+
+import argparse
+import http.server
+import json
+import os
+import socketserver
+import sys
+import threading
+import traceback
+import webbrowser
+from pathlib import Path
+
+
+class PlanServer(socketserver.TCPServer):
+    """A single-threaded TCP server that carries the run's file paths."""
+
+    allow_reuse_address = True
+
+    def __init__(self, server_address, handler_cls, plan_path: Path, response_path: Path):
+        super().__init__(server_address, handler_cls)
+        self.plan_path = plan_path
+        self.response_path = response_path
+
+
+class Handler(http.server.BaseHTTPRequestHandler):
+    """Serve the plan on ``GET /`` and accept the submission on ``POST /submit``."""
+
+    server: PlanServer  # type: ignore[assignment]  # narrowed for clarity
+
+    def do_GET(self) -> None:
+        if self._route() == "/":
+            self._serve_plan()
+        else:
+            self.send_error(404)
+
+    def do_POST(self) -> None:
+        if self._route() != "/submit":
+            self.send_error(404)
+            return
+
+        length = int(self.headers.get("Content-Length") or 0)
+        raw = self.rfile.read(length) if length else b""
+        try:
+            payload = json.loads(raw) if raw else {}
+        except json.JSONDecodeError:
+            # Persist something rather than losing the user's submission.
+            payload = {"_parse_error": True, "raw": raw.decode("utf-8", "replace")}
+
+        _write_json_atomic(self.server.response_path, payload)
+
+        self.send_response(204)
+        self.end_headers()
+
+        # Shut the server down from a *separate* thread. Calling shutdown() from
+        # within the request handler — which runs in serve_forever()'s own
+        # thread — would deadlock (shutdown waits for the serve loop to notice
+        # the stop flag, but the serve loop is busy running this handler).
+        threading.Thread(target=self.server.shutdown, daemon=True).start()
+
+    def _serve_plan(self) -> None:
+        try:
+            body = self.server.plan_path.read_bytes()
+        except OSError as exc:
+            self.send_error(500, f"cannot read plan file: {exc}")
+            return
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _route(self) -> str:
+        """Path without query string, e.g. ``/submit`` from ``/submit?x=1``."""
+        return self.path.split("?", 1)[0]
+
+    def log_message(self, *args) -> None:  # noqa: D401 - silence default logging
+        pass
+
+
+def _write_json_atomic(path: Path, data: object) -> None:
+    """Write ``data`` as pretty JSON, atomically (write temp + os.replace)."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = path.with_name(path.name + ".tmp")
+    tmp.write_text(json.dumps(data, indent=2, ensure_ascii=False), encoding="utf-8")
+    os.replace(tmp, path)
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description="planforge plan server")
+    parser.add_argument("--plan", required=True, type=Path, help="path to plan.html to serve")
+    parser.add_argument("--response", required=True, type=Path, help="path to write response.json")
+    parser.add_argument("--run-id", required=True, help="run UUID (for logging / error file)")
+    parser.add_argument(
+        "--no-browser",
+        action="store_true",
+        help="bind and serve but do not open a browser (for headless / testing)",
+    )
+    args = parser.parse_args(argv)
+
+    run_dir = args.response.parent
+    try:
+        if not args.plan.exists():
+            sys.stderr.write(f"planforge: plan file not found: {args.plan}\n")
+            return 2
+
+        # Clear any stale response from a previous turn so a crash can't leave
+        # the agent reading old data.
+        if args.response.exists():
+            args.response.unlink()
+
+        with PlanServer(("127.0.0.1", 0), Handler, args.plan, args.response) as httpd:
+            port = httpd.server_address[1]
+            url = f"http://127.0.0.1:{port}/"
+            print(f"planforge: serving plan on {url} (run {args.run_id})", flush=True)
+
+            if args.no_browser:
+                print(f"planforge: --no-browser set; open this URL manually: {url}", flush=True)
+            else:
+                opened = False
+                try:
+                    opened = webbrowser.open(url)
+                except Exception as exc:  # webbrowser can raise on headless hosts
+                    print(f"planforge: webbrowser.open failed: {exc}", flush=True)
+                if not opened:
+                    print(
+                        f"planforge: could not auto-open a browser — open this URL manually: {url}",
+                        flush=True,
+                    )
+
+            httpd.serve_forever()
+
+        print("planforge: submission received, server exiting", flush=True)
+        return 0
+
+    except Exception:
+        tb = traceback.format_exc()
+        try:
+            run_dir.mkdir(parents=True, exist_ok=True)
+            (run_dir / "server.err").write_text(tb, encoding="utf-8")
+        except OSError:
+            pass
+        sys.stderr.write(tb)
+        return 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())
