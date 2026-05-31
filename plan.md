@@ -236,9 +236,13 @@ Refs: plan.md Phase 2b.
 
 **Effort:** ~0.5 day (simpler than the original background-bash design — saves the lifecycle code).
 
-### Phase 2c — `assets/template.html` + `client.js` + `styles.css`
+### Phase 2c — `assets/template.html` (self-contained) + `server.py --port`
 
-**Tech:** vanilla HTML + Mermaid 10 (LTS) + minimal CSS. No framework. No build step.
+**Tech:** one self-contained HTML file — inline CSS plus a single ESM
+`<script type="module">` that imports Mermaid **11.15.0** from jsdelivr. No
+framework, no build step, no separate `client.js` / `styles.css` (kept inline so
+the agent writes exactly one file to `/tmp`). The agent only swaps the
+`#initial-state` JSON block; the page builds its editors from that data.
 
 **Layout:**
 
@@ -261,16 +265,25 @@ Refs: plan.md Phase 2b.
 └─────────────────────────────────────────────────────────┘
 ```
 
-**client.js responsibilities:**
+**Page-script responsibilities:**
 
-1. On load: read initial state from a `<script type="application/json" id="initial-state">…</script>` tag embedded in the HTML by the agent.
-2. Render each Mermaid block in its container via `mermaid.render()`.
-3. On every keystroke in any editor: re-render that Mermaid block live (debounced ~250 ms).
+1. On load: read initial state via `getElementById('initial-state').textContent` (a `<script type="application/json" id="initial-state">` block the agent fills in). Build a labeled textarea per text section and per diagram.
+2. Render each Mermaid block via `mermaid.render()`; show parse errors inline in that diagram's preview (Send stays enabled — raw DSL goes through anyway). Clean up any orphan nodes a failed render leaves behind.
+3. On every keystroke in a diagram editor: re-render that block live (debounced ~250 ms).
 4. On "Send to agent" click:
-   - Collect `full_state` from the editors.
+   - Collect `full_state` (`{text:{id:value}, diagrams:{id:value}}`) from the editors.
    - POST `{ run_id, turn, action: "iterate", full_state, timestamp, user_notes }` to `/submit`.
-   - Show "sent, waiting for new plan…" overlay. (Page replacement on the next turn is open question #2.)
-5. On "Approve & finalize" click: same POST shape but `action: "approve"`. Show "approved" confirmation.
+   - Show a "waiting for the next version…" overlay, then **auto-advance** (see below).
+5. On "Approve & finalize" click: same POST shape but `action: "approve"`. Show an "approved" confirmation; no polling (the loop ends).
+
+**Cross-turn auto-advance (resolves open question #2).** The skill reuses one
+port per run (`server.py --port`). After an iterate-send the page polls `GET /`
+on the same origin; the just-exited server is gone, so polls fail until the
+agent starts the next turn's server on the same port. When a server answers
+with a **different** turn number, the page reloads into the new plan. The turn
+comparison (parsed via `DOMParser` + `getElementById`, not regex) guards the
+brief window where the old server might still answer. The user never re-opens a
+URL — the tab advances on its own.
 
 **For v0.1.0 the editor is a plain `<textarea>` per section.** CodeMirror / Monaco / drag-drop topology editing is deferred to v0.2.0+.
 
@@ -279,19 +292,24 @@ Refs: plan.md Phase 2b.
 **Commit:**
 
 ```
-feat(plan): add HTML template with Mermaid render
+feat(plan): add self-contained plan template with Mermaid render and auto-advance
 
-Adds template.html + client.js + styles.css. Sections and diagrams
-editable via textareas; Mermaid blocks re-render on keystroke (debounced).
-Send and Approve buttons POST full_state to the local server.
+Single self-contained template.html (inline CSS + ESM module JS, Mermaid
+11.15.0 from jsdelivr). Prose + diagram textareas; diagrams re-render live
+on keystroke with inline error recovery. Send/Approve POST full_state.
 
-Mermaid 10 (LTS) loaded from CDN for v0.1.0; vendoring locally is a
-v0.2.0 concern.
+Cross-turn auto-advance: server.py gains --port (reuse one port per run,
+with bind-retry over the handoff window) and the page polls + reloads when
+a new turn appears on that port.
 
 Refs: plan.md Phase 2c.
 ```
 
-**Effort:** ~1.5 days.
+Mermaid 11.15.0 from CDN for v0.1.0; vendoring locally is a v0.2.0 concern.
+
+**Effort:** ~1.5 days. **Status: done** — verified in a real browser (Mermaid
+render, live edit + error recovery with no orphan nodes, exact `full_state`
+round-trip, unattended turn 1 → turn 2 auto-advance).
 
 ### Phase 2d — `SKILL.md` body
 
@@ -447,17 +465,17 @@ Refs: plan.md Phase 2d.
 
 | Sub-phase | Effort |
 |---|---|
-| 2a — Skill scaffold | ~10 min |
-| 2b — server.py | ~0.5 day |
-| 2c — HTML + JS + CSS | ~1.5 days |
-| 2d — SKILL.md body | ~0.5 day |
-| 2e — README + CHANGELOG + release | ~0.5 day |
+| 2a — Skill scaffold | ~10 min | **done** |
+| 2b — server.py | ~0.5 day | **done** |
+| 2c — template.html + `--port` | ~1.5 days | **done** |
+| 2d — SKILL.md body | ~0.5 day | next |
+| 2e — README + CHANGELOG + release | ~0.5 day | |
 
-**Decision points (decide before or during the relevant sub-phase):**
-- **Mermaid version (2c):** v10 LTS (recommended) vs v11 latest. Lock in early to avoid breaking the template across iterations.
-- **Mermaid loading (2c):** CDN (`unpkg.com/mermaid@10/dist/mermaid.min.js`) for v0.1.0; vendor locally is a v0.2.0+ concern.
-- **Browser auto-refresh between turns (2c):** open question #2 below — needs an answer before 2c's client.js is written.
-- **Logging path resolution (2d):** open question #1 below.
+**Decision points:**
+- **Mermaid version (2c):** ✅ resolved — pinned **11.15.0** (latest), loaded as the ESM build from jsdelivr. Vendoring locally is a v0.2.0+ concern.
+- **Template structure (2c):** ✅ resolved — single self-contained file (inline CSS + module JS), not separate `client.js` / `styles.css`.
+- **Browser auto-refresh between turns (2c):** ✅ resolved (open question #2) — pinned port per run + poll-and-reload on turn change.
+- **Logging path resolution (2d):** open question #1 below — still to decide.
 
 ---
 
@@ -497,8 +515,8 @@ If you are an agent picking up this plan, you do not need to read the thesis to 
 These are not blockers but should be revisited as Phase 2 lands:
 
 1. **Run logging path resolution (Phase 2d).** SKILL.md proposes `experiments/{run}/iterations/` but how does the skill know `{run}`? Either (a) the user/caller passes it as an arg in the seed prompt, or (b) the skill defaults to `/tmp/planforge-{run_id}/iterations/` and the user copies after. Decide before v0.1.0.
-2. **Browser auto-refresh on next turn (Phase 2c).** When the agent generates a new plan after iteration, how does the user know to refresh? Either (a) the skill instructs the user to refresh, (b) the server pushes via SSE / WebSocket (more work), or (c) the new server URL differs each turn so the browser navigates fresh. Decide before v0.1.0.
-3. **Mermaid syntax error handling (Phase 2c).** If the user types invalid Mermaid in a diagram block, the live render fails. Should the Send button be disabled, or should the bad block be sent anyway with a warning?
+2. ✅ **Browser auto-refresh on next turn (Phase 2c) — RESOLVED.** Pinned port per run (`server.py --port`) + the page polls `GET /` and reloads when a different turn number appears. No SSE, no manual refresh, no per-turn URL. Verified in-browser.
+3. ✅ **Mermaid syntax error handling (Phase 2c) — RESOLVED.** Invalid DSL shows an inline error in that diagram's preview and Send stays enabled — the raw DSL is sent anyway so the agent can help fix it. Orphan nodes from a failed render are cleaned up. Verified in-browser.
 4. **Multiple concurrent runs.** Per-run UUID handles isolation, but is there a UI / list-runs command? Defer to v0.2.0+ unless v0.1.0 testing reveals friction.
 5. **Orphan server protection.** v0.1.0 has no server-side idle timer; if the user closes the browser without submitting, the server runs forever and the agent waits on a notification that never fires. Add a configurable idle timeout (default ~30 min) in v0.2.0+. For v0.1.0, document the manual-cancel workaround in SKILL.md.
 
