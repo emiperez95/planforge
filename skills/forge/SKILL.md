@@ -27,11 +27,24 @@ background task completes and the harness notifies you. You never poll.
 
 All run files live under `/tmp/planforge-{run_id}/` (create it if needed).
 
+## Skill assets — where this skill's files live
+
+This skill ships two files alongside this `SKILL.md`:
+
+- `scripts/server.py` — the local HTTP server
+- `assets/template.html` — the plan-page template
+
+Resolve both **relative to this skill's base directory** — the absolute path your
+context shows as `Base directory for this skill: …` when the skill loads. Below,
+`{skill_dir}` denotes that directory. (This resolves correctly whether planforge
+runs as a personal skill or as an installed plugin, with no `${CLAUDE_PLUGIN_ROOT}`
+dependency.)
+
 ## Per-iteration workflow
 
 ### Step 1 — Generate the plan HTML
 
-Read `${CLAUDE_PLUGIN_ROOT}/skills/forge/assets/template.html`. Replace **only**
+Read `{skill_dir}/assets/template.html`. Replace **only**
 the JSON inside the `<script id="initial-state" type="application/json"> … </script>`
 block with this turn's state; leave the rest of the file unchanged:
 
@@ -57,7 +70,7 @@ Write the result to `/tmp/planforge-{run_id}/plan.html`.
 `run_in_background=true`:
 
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/skills/forge/scripts/server.py \
+python3 {skill_dir}/scripts/server.py \
     --plan     /tmp/planforge-{run_id}/plan.html \
     --response /tmp/planforge-{run_id}/response.json \
     --run-id   {run_id} \
@@ -75,7 +88,7 @@ fallback in case auto-open failed.
 polling and will reload itself). Add `--no-browser` and the saved port:
 
 ```bash
-python3 ${CLAUDE_PLUGIN_ROOT}/skills/forge/scripts/server.py \
+python3 {skill_dir}/scripts/server.py \
     --plan     /tmp/planforge-{run_id}/plan.html \
     --response /tmp/planforge-{run_id}/response.json \
     --run-id   {run_id} \

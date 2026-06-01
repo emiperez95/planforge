@@ -61,6 +61,22 @@ Per-run artifacts (each turn's HTML + your responses, plus the final `converged.
 
 See [`plan.md`](./plan.md) for the phased roadmap. Phase 2 (functional v0.1.0) is complete; remaining work and deferred features are tracked there.
 
+### Dogfooding it globally while you develop
+
+To use planforge across your other projects without a per-session `--plugin-dir`
+or a copied marketplace install, symlink the skill into your personal skills
+directory:
+
+```bash
+ln -s "$(pwd)/skills/forge" ~/.claude/skills/planforge
+```
+
+It then loads in every session as `/planforge`, and edits to the repo are live —
+no reinstall. The skill resolves `server.py` / `template.html` relative to its own
+base directory, so the same `SKILL.md` works both as this personal-skill symlink
+and as a namespaced plugin (`/planforge:forge`). Skills load at session start, so
+open a fresh session to pick it up.
+
 Contributions follow [Conventional Commits](https://conventionalcommits.org/). Enable the commit-msg hook:
 
 ```bash
