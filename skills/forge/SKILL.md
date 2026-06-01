@@ -1,10 +1,10 @@
 ---
-name: forge
+name: planforge
 description: Use when the user wants to collaboratively draft or refine a software plan that would benefit from diagrams and iterative editing before being locked in. Skip for plain-text outlines, simple lists, or one-shot planning where a single written response is enough.
 disable-model-invocation: false
 ---
 
-# forge — instructions
+# planforge — instructions
 
 You are running a closed-loop human-AI coplanner. You generate an HTML plan
 (prose sections + Mermaid diagrams), the user edits it in their browser and
