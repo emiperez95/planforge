@@ -34,7 +34,9 @@ import sys
 import threading
 import time
 import traceback
+import uuid
 import webbrowser
+from datetime import datetime
 from pathlib import Path
 
 
@@ -126,6 +128,32 @@ def _bind_server(port: int, plan_path: Path, response_path: Path) -> PlanServer:
     raise last_exc
 
 
+def _new_run_id() -> str:
+    """A sortable, collision-resistant run id: ``<local timestamp>-<random>``.
+
+    Format ``YYYYmmdd-HHMMSS-xxxxxxxx`` (e.g. ``20260608-143005-a1b2c3d4``). The
+    timestamp prefix makes ``runs/`` list chronologically; the 8-hex random
+    suffix rules out collisions within the same second. Generated in code so it
+    has real entropy — minted **once** at turn 1 (via ``--new-run-id``) and then
+    reused across every turn, so it must NOT be regenerated when the per-turn
+    server restarts.
+    """
+    return datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:8]
+
+
+def _default_run_root() -> Path:
+    """Default location for run artifacts: ``<repo>/runs``.
+
+    ``server.py`` lives at ``<repo>/skills/forge/scripts/server.py``, so the
+    repo root is ``parents[3]``. ``resolve()`` first so this is correct even when
+    the skill is invoked through the personal-skill symlink
+    (``~/.claude/skills/planforge -> <repo>/skills/forge``) — it canonicalizes to
+    the real file in the repo. ``runs/`` is gitignored, so artifacts persist on
+    disk across reboots without ever being committed to the public repo.
+    """
+    return Path(__file__).resolve().parents[3] / "runs"
+
+
 def _write_json_atomic(path: Path, data: object) -> None:
     """Write ``data`` as pretty JSON, atomically (write temp + os.replace)."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -136,9 +164,39 @@ def _write_json_atomic(path: Path, data: object) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="planforge plan server")
-    parser.add_argument("--plan", required=True, type=Path, help="path to plan.html to serve")
-    parser.add_argument("--response", required=True, type=Path, help="path to write response.json")
-    parser.add_argument("--run-id", required=True, help="run UUID (for logging / error file)")
+    parser.add_argument(
+        "--plan",
+        type=Path,
+        default=None,
+        help="path to plan.html to serve (default: <run-dir>/plan.html)",
+    )
+    parser.add_argument(
+        "--response",
+        type=Path,
+        default=None,
+        help="path to write response.json (default: <run-dir>/response.json)",
+    )
+    parser.add_argument(
+        "--run-id",
+        default=None,
+        help="run id (required unless --new-run-id); names the run dir",
+    )
+    parser.add_argument(
+        "--run-root",
+        type=Path,
+        default=None,
+        help="root dir for run artifacts (default: <repo>/runs, gitignored)",
+    )
+    parser.add_argument(
+        "--new-run-id",
+        action="store_true",
+        help="mint a fresh sortable run id, print it, and exit (call once at turn 1)",
+    )
+    parser.add_argument(
+        "--print-run-dir",
+        action="store_true",
+        help="print the absolute run dir for --run-id and exit (no server)",
+    )
     parser.add_argument(
         "--port",
         type=int,
@@ -153,18 +211,40 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
 
-    run_dir = args.response.parent
+    # Mint-and-exit: generate the run id once at turn 1. Separate from server
+    # startup on purpose — the server restarts every turn, and the id must stay
+    # constant across them, so generation can't live in the serve path.
+    if args.new_run_id:
+        print(_new_run_id(), flush=True)
+        return 0
+
+    if not args.run_id:
+        parser.error("--run-id is required (or use --new-run-id to mint one)")
+
+    run_root = args.run_root or _default_run_root()
+    run_dir = run_root / f"planforge-{args.run_id}"
+
+    # Emit the run dir and exit — lets the agent learn the symlink-proof absolute
+    # path before it writes plan.html (it can't reliably derive the repo root
+    # from the skill's injected base dir when installed via symlink).
+    if args.print_run_dir:
+        print(run_dir, flush=True)
+        return 0
+
+    plan_path = args.plan or (run_dir / "plan.html")
+    response_path = args.response or (run_dir / "response.json")
+
     try:
-        if not args.plan.exists():
-            sys.stderr.write(f"planforge: plan file not found: {args.plan}\n")
+        if not plan_path.exists():
+            sys.stderr.write(f"planforge: plan file not found: {plan_path}\n")
             return 2
 
         # Clear any stale response from a previous turn so a crash can't leave
         # the agent reading old data.
-        if args.response.exists():
-            args.response.unlink()
+        if response_path.exists():
+            response_path.unlink()
 
-        with _bind_server(args.port, args.plan, args.response) as httpd:
+        with _bind_server(args.port, plan_path, response_path) as httpd:
             port = httpd.server_address[1]
             url = f"http://127.0.0.1:{port}/"
             print(f"planforge: serving plan on {url} (run {args.run_id})", flush=True)

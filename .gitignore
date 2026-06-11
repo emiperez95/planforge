@@ -41,5 +41,9 @@ Desktop.ini
 # planforge runtime
 *.pid
 
+# planforge run artifacts — persisted on disk so runs survive reboots, but never
+# committed (this repo is public; plans may contain private content).
+/runs/
+
 # Local Claude Code dev/test config (machine-specific; not part of the plugin)
 .claude/
