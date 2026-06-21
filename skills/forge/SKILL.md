@@ -76,17 +76,58 @@ block with this turn's state; leave the rest of the file unchanged:
 {
   "meta":     { "title": "<plan title>", "turn": <N>, "run_id": "<run_id>" },
   "text":     [ { "id": "<slug>", "label": "<heading>", "value": "<prose>" } ],
-  "diagrams": [ { "id": "<slug>", "label": "<heading>", "value": "<mermaid DSL>" } ]
+  "diagrams": [ { "id": "<slug>", "label": "<heading>", "value": "<mermaid DSL>",
+                  "value_annotated": "<mermaid DSL + diff styling>" } ]
 }
 ```
 
-- **Turn 1:** build the state from the user's seed prompt.
+- **Turn 1:** build the state from the user's seed prompt. Omit `value_annotated`
+  (there is nothing to diff against yet).
 - **Turn N>1:** build from the previous `full_state` plus the `user_notes` and
   edits in the last `response.json`. Keep `id`s stable across turns so the user's
   edits map cleanly. `turn` must equal your tracked turn number — the browser
-  uses it to detect the new version.
+  uses it to detect the new version. For changed diagrams, also emit
+  `value_annotated` (see **Diagram change highlighting** below).
 
 Write the result to `{run_dir}/plan.html`.
+
+#### Diagram change highlighting (turns N>1)
+
+When a diagram changed since the previous turn, add an optional
+`value_annotated` field next to its clean `value`. The browser binds the
+editable textarea (and the submitted state) to `value`, and renders
+`value_annotated` in the preview when the user's **Show changes** toggle is on —
+so the user sees, in the rendered diagram, exactly what you changed. `value`
+stays the clean DSL; `value_annotated` is render-only and never round-trips back.
+
+Build `value_annotated` from the new diagram by appending diff styling:
+
+- Compute, vs the previous turn's DSL for this diagram: which nodes are **added**,
+  which **changed** (label/shape), which were **deleted**.
+- **Re-inject deleted nodes** — they aren't in the new DSL, so add them back with
+  a dashed "removed" edge from their old neighbour, e.g. `A -.->|removed| C[(Cache)]`.
+- Append this canonical class block **verbatim** (so colors are consistent across
+  runs), then the per-node `class` assignments:
+
+  ```
+  classDef added fill:#dcfce7,stroke:#16a34a,stroke-width:2px,color:#14532d;
+  classDef changed fill:#fef9c3,stroke:#ca8a04,stroke-width:2px,color:#713f12;
+  classDef deleted fill:#fee2e2,stroke:#b91c1c,stroke-width:2px,color:#7f1d1d,stroke-dasharray:5 4;
+  class <added node ids> added;
+  class <changed node ids> changed;
+  class <deleted node ids> deleted;
+  ```
+
+Scope / limits (keep it reliable rather than clever):
+
+- **Color nodes, not edges** — Mermaid styles edges by positional `linkStyle`
+  index, which breaks when lines reorder. Node coloring + the dashed re-injected
+  deletion edge is enough.
+- **Flowchart/`graph` only.** `classDef`/`class` is reliable there. For diagram
+  types that don't support per-element classes (sequence, state, ER, gantt),
+  **omit `value_annotated`** — the preview falls back to the clean render.
+- **Unchanged or brand-new diagrams:** omit `value_annotated` (nothing to mark, or
+  everything would be green noise).
 
 ### Step 2 — Spawn the server (background)
 

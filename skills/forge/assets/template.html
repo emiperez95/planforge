@@ -42,6 +42,22 @@
       border: 1px solid var(--line); border-radius: 999px;
       padding: 2px 10px; white-space: nowrap;
     }
+    .toggle {
+      display: inline-flex; align-items: center; gap: 6px;
+      font-size: 0.8rem; font-weight: 600; color: var(--muted);
+      cursor: pointer; white-space: nowrap;
+    }
+    .toggle input { accent-color: var(--accent); cursor: pointer; }
+    .legend {
+      display: flex; gap: 16px; flex-wrap: wrap;
+      font-size: 0.76rem; color: var(--muted);
+      margin: 0 2px 12px;
+    }
+    .legend span { display: inline-flex; align-items: center; gap: 6px; }
+    .legend .chip { width: 14px; height: 14px; border-radius: 4px; border: 2px solid; }
+    .legend .chip.add { background: #dcfce7; border-color: #16a34a; }
+    .legend .chip.chg { background: #fef9c3; border-color: #ca8a04; }
+    .legend .chip.del { background: #fee2e2; border-color: #b91c1c; border-style: dashed; }
     main { max-width: var(--maxw); margin: 0 auto; padding: 22px 20px 0; }
     .section-title {
       font-size: 0.78rem; font-weight: 700; text-transform: uppercase;
@@ -122,6 +138,9 @@
     <h1 id="plan-title">Plan</h1>
     <span class="badge" id="turn-badge">turn —</span>
     <span class="badge" id="run-badge">—</span>
+    <label class="toggle" id="diff-toggle-wrap" hidden>
+      <input type="checkbox" id="diff-toggle" checked> Show changes
+    </label>
   </header>
 
   <main>
@@ -129,6 +148,11 @@
     <div id="text-sections"></div>
 
     <div class="section-title" id="diagram-heading" hidden>Diagrams</div>
+    <div class="legend" id="diff-legend" hidden>
+      <span><i class="chip add"></i> added</span>
+      <span><i class="chip chg"></i> changed</span>
+      <span><i class="chip del"></i> deleted</span>
+    </div>
     <div id="diagram-sections"></div>
 
     <div class="section-title">Notes for the agent (optional)</div>
@@ -153,19 +177,28 @@
       {
         "meta":     { "title": str, "turn": int, "run_id": str },
         "text":     [ { "id": str, "label": str, "value": str }, ... ],
-        "diagrams": [ { "id": str, "label": str, "value": str (mermaid DSL) }, ... ]
+        "diagrams": [ { "id": str, "label": str, "value": str (mermaid DSL),
+                        "value_annotated": str? (optional) }, ... ]
       }
+    "value" is the clean, editable DSL bound to the textarea and round-tripped on
+    submit. "value_annotated" is an OPTIONAL render-only variant the agent emits on
+    turns N>1: the same diagram with classDef/class styling baked in to color what
+    changed (green=added, yellow=changed, red dashed=deleted, deletions re-injected).
+    When present and "Show changes" is on, the preview renders it; editing the field
+    or toggling off falls back to rendering the clean "value". It is never submitted.
     The sample below renders a tiny example so the template is viewable on its own.
   -->
   <script id="initial-state" type="application/json">
   {
-    "meta": { "title": "URL shortener — plan", "turn": 1, "run_id": "sample00-0000-0000-0000-000000000000" },
+    "meta": { "title": "URL shortener — plan", "turn": 2, "run_id": "sample00-0000-0000-0000-000000000000" },
     "text": [
       { "id": "overview", "label": "Overview", "value": "A service that turns long URLs into short codes and redirects on lookup." },
       { "id": "goals", "label": "Goals", "value": "- Sub-100ms redirects\n- Collision-free short codes\n- Basic click analytics" }
     ],
     "diagrams": [
-      { "id": "architecture", "label": "Architecture", "value": "graph LR\n  U[User] --> A[API]\n  A --> DB[(Store)]\n  A --> C[(Cache)]" }
+      { "id": "architecture", "label": "Architecture",
+        "value": "graph LR\n  U[User] --> LB[Load Balancer]\n  LB --> A[API Gateway]\n  A --> DB[(Store)]\n  A --> Q[(Queue)]",
+        "value_annotated": "graph LR\n  U[User] --> LB[Load Balancer]\n  LB --> A[API Gateway]\n  A --> DB[(Store)]\n  A --> Q[(Queue)]\n  A -.->|removed| C[(Cache)]\n  classDef added fill:#dcfce7,stroke:#16a34a,stroke-width:2px,color:#14532d;\n  classDef changed fill:#fef9c3,stroke:#ca8a04,stroke-width:2px,color:#713f12;\n  classDef deleted fill:#fee2e2,stroke:#b91c1c,stroke-width:2px,color:#7f1d1d,stroke-dasharray:5 4;\n  class LB,Q added;\n  class A changed;\n  class C deleted;" }
     ]
   }
   </script>
@@ -212,6 +245,20 @@
     const diagWrap = document.getElementById('diagram-sections');
     const diagItems = STATE.diagrams || [];
     if (diagItems.length) document.getElementById('diagram-heading').hidden = false;
+
+    // Change highlighting: when any diagram carries an agent-supplied
+    // `value_annotated`, show the "Show changes" toggle + legend. The annotated
+    // DSL is rendered (colored) only while the toggle is on AND the user hasn't
+    // edited that field — once edited, the annotation is stale so we render the
+    // clean value they're now authoring.
+    const diffToggle = document.getElementById('diff-toggle');
+    const anyAnnotated = diagItems.some(d => d.value_annotated);
+    if (anyAnnotated) {
+      document.getElementById('diff-toggle-wrap').hidden = false;
+      document.getElementById('diff-legend').hidden = false;
+    }
+    const diagramRenders = [];
+
     let renderSeq = 0;
     for (const item of diagItems) {
       const block = document.createElement('div');
@@ -232,11 +279,18 @@
       diagWrap.append(block);
       autosize(ta);
 
-      const render = () => renderDiagram(ta.value, preview);
-      ta.addEventListener('input', () => { autosize(ta); });
+      let edited = false;
+      const render = () => {
+        const showAnnotated = diffToggle.checked && !!item.value_annotated && !edited;
+        return renderDiagram(showAnnotated ? item.value_annotated : ta.value, preview);
+      };
+      diagramRenders.push(render);
+      ta.addEventListener('input', () => { edited = true; autosize(ta); });
       ta.addEventListener('input', debounce(render, 250));
       render();
     }
+
+    diffToggle.addEventListener('change', () => diagramRenders.forEach(r => r()));
 
     async function renderDiagram(dsl, preview) {
       if (!dsl.trim()) {
