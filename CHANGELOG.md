@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 This file is regenerated from commit history via [git-cliff](https://git-cliff.org/) at each release.
 
+## [0.2.0] - 2026-06-21
+
+### Documentation
+
+- *(plan)* Mark Phase 2 complete — v0.1.0 shipped
+
+### Features
+
+- *(forge)* Persist runs in gitignored repo dir with sortable ids
+- *(forge)* Widen plan page, autosize fields, set tab title
+- *(forge)* Color-code diagram changes in the plan preview
+
+### Refactor
+
+- *(forge)* Resolve assets via skill base dir, not CLAUDE_PLUGIN_ROOT
+- *(forge)* Set skill display name to planforge for consistency
+
 ## [0.1.0] - 2026-05-31
 
 ### Chore
@@ -21,6 +38,7 @@ This file is regenerated from commit history via [git-cliff](https://git-cliff.o
 - *(plan)* Restructure into single functional phase, switch to background-bash loop
 - *(plan)* Sync Phase 2c to as-built, resolve open questions 2 and 3
 - *(plan)* Sync 2d to as-built, resolve open question 1, add Future work
+- Release v0.1.0 — first functional loop
 
 ### Features
 
