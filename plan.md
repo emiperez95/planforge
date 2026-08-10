@@ -461,24 +461,96 @@ These are not blockers but should be revisited as Phase 2 lands:
 2. ✅ **Browser auto-refresh on next turn (Phase 2c) — RESOLVED.** Pinned port per run (`server.py --port`) + the page polls `GET /` and reloads when a different turn number appears. No SSE, no manual refresh, no per-turn URL. Verified in-browser.
 3. ✅ **Mermaid syntax error handling (Phase 2c) — RESOLVED.** Invalid DSL shows an inline error in that diagram's preview and Send stays enabled — the raw DSL is sent anyway so the agent can help fix it. Orphan nodes from a failed render are cleaned up. Verified in-browser.
 4. **Multiple concurrent runs.** Per-run UUID handles isolation, but is there a UI / list-runs command? Defer to v0.2.0+ unless v0.1.0 testing reveals friction.
-5. **Orphan server protection.** v0.1.0 has no server-side idle timer; if the user closes the browser without submitting, the server runs forever and the agent waits on a notification that never fires. Add a configurable idle timeout (default ~30 min) in v0.2.0+. For v0.1.0, document the manual-cancel workaround in SKILL.md.
+5. ✅ **Orphan server protection — RESOLVED.** `server.py --idle-timeout <s>` gives up after that long with no inbound request, writes an `action: "timeout"` response and exits, so the background task completes and the agent is woken instead of waiting forever. The plan page sends a `GET /ping` keepalive every 20s, so a tab that is merely open (however long the user takes) never trips the timer — only a closed one does. Verified in a real browser: with a 45s timeout, an open tab survived 65s and a closed one expired in ~43s. Ships **default-off** (`0` = disabled) so that a run already in flight against an older `SKILL.md` — which neither passes the flag nor knows the `timeout` response shape — cannot be affected; `SKILL.md` passes `1800`. Flip the default in a later release once no old sessions are plausibly live.
+
+## Run metadata and token accounting (as-built)
+
+Closes [issue #1](https://github.com/emiperez95/planforge/issues/1). A run left
+behind enough to *reproduce* the loop but not to *measure* it. Three files now
+fill that gap, all written by `server.py`, all additive — no existing artifact
+renamed or restructured, and neither wire contract touched.
+
+- **`manifest.json`** — run identity (id, planforge version + commit, python
+  version, skill dir, Claude Code session id, start/end) and one entry per turn
+  with `bind_ts` / `submit_ts` / `action` / `port`, plus token usage.
+- **`session.log`** — append-only `bound` / `submission` / `timeout` timeline, so
+  per-turn wall-clock never has to be inferred from filesystem mtimes.
+- **`discussion.md`** — the durable planning record (see the deferred item this
+  replaces): per turn, the agent's proposal, which sections the user edited,
+  before/after for each, and their notes. Path set by `--discussion-log`, so it
+  can live outside the run dir.
+
+### Why usage is reconstructed, not self-reported
+
+Investigated before implementing; three findings drove the design.
+
+1. **The agent cannot report its own usage.** A message's token counts do not
+   exist until that message completes, so self-reporting at write time is
+   structurally impossible — not merely awkward. What *is* available is
+   `CLAUDE_CODE_SESSION_ID`, exported into the Bash environment, so the skill can
+   identify its own session with no hook. Transcripts are located by globbing
+   `~/.claude/projects/*/<session-id>.jsonl` rather than encoding cwd, because
+   that encoding maps both `/` and `.` to `-` and cannot be reversed.
+
+2. **Summing `usage` per JSONL line over-counts badly.** The transcript writes one
+   line per *content block* and repeats the whole-message `usage` verbatim on each
+   — a reply with one text block and four tool calls appears five times with
+   identical totals. Measured inflation: **2.0x–3.8x** on real sessions.
+   Deduplicating by `message.id` is mandatory, and keeping the first line per id
+   also yields the earliest timestamp, which is what attribution wants.
+
+3. **The four token components must stay separate.** `input_tokens` is only the
+   uncached remainder; the rest sits in `cache_creation_input_tokens` and
+   `cache_read_input_tokens`, priced differently (~1.25x and ~0.1x base). A single
+   summed input figure cannot be converted back into a cost. **No price is
+   recorded** — a list-price calculation is not a charge, and on subscription auth
+   nothing is billed per call. Tokens only; price stays derivable later.
+
+### Turn attribution
+
+The server restarts every turn, so its bind/submit stamps bracket the work
+exactly. `--reconcile-usage` attributes messages to contiguous, non-overlapping
+windows — nothing counted twice across the restart:
+
+| bucket | window |
+|---|---|
+| `generation` | `(submit_ts(N-1) or run_start, bind_ts(N)]` — agent building the plan |
+| `parallel_chat` | `(bind_ts(N), submit_ts(N)]` — conversation while the user edited |
+
+`run_start_ts` is stamped by `--print-run-dir`, which runs at turn 1 *before* any
+generation, giving turn 1 a tight lower bound instead of an open-ended one.
+
+### Limits recorded rather than papered over
+
+The manifest carries `usage.status` and `usage.caveats`; consumers must read them
+before quoting a number.
+
+- **Unrelated conversation is counted.** The transcript has no run tag, so
+  anything said in-session inside a window lands in it. Unfixable, so it is stated.
+- **Concurrent runs in one session** make windows ambiguous — detected by
+  comparing sibling manifests and marked `unattributable` rather than guessed.
+- **The final assistant message** of a run is not yet flushed when reconciliation
+  runs from inside that same message, so it is not counted.
+- **Sidechain (subagent) messages** are included and mirrored into a separate
+  `sidechain_subset`, but this path is **unverified** — no sidechain entries
+  existed on the machine to test against.
+- **No session id** (variable unset) ⇒ `status: "unavailable"` with a reason, and
+  no totals at all rather than fabricated zeros.
+
+Deviation from the issue: it proposed a per-turn `iterations/turn-NN_meta.json`
+written by the agent. Superseded by the manifest's per-turn entries — one file,
+and it avoids asking the agent to write token fields it provably cannot know. The
+authoritative `model` likewise comes from the transcript, not self-report.
 
 ## Future work (post-v0.1.0)
 
 Deferred intentionally to keep v0.1.0 small. Not blockers; revisit as real use
 surfaces the need.
 
-- **Durable planning-discussion log.** v0.1.0 keeps per-turn artifacts in
-  `/tmp/` only. Add an opt-in, configurable output location that persists the
-  full planning record — every turn's plan + the user's edits/notes, i.e. the
-  *discussion* between user and agent — to a chosen directory (e.g. a thesis
-  experiment folder), so a run can be studied or cited after the fact.
-- **Server idle timeout.** No idle timer today (open question #5): a browser
-  closed without submitting leaves an orphan server and the agent waiting
-  forever. Add a configurable idle timeout (default ~30 min) that writes a
-  `{"error":"timeout"}` response and exits.
 - **Multi-run management.** A `list-runs` / status surface if concurrent runs
-  cause friction (open question #4).
+  cause friction (open question #4). Still open — note that concurrent runs in
+  one Claude Code session also make token attribution ambiguous, which the
+  manifest now detects and flags as `unattributable`.
 - **Richer editing.** CodeMirror for prose/DSL, vendored Mermaid (no CDN),
   and — further out — visual node/edge diagram editing with structural deltas
   and stable diagram IDs across edits.
