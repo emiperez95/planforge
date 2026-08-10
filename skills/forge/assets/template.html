@@ -385,6 +385,22 @@
       setTimeout(tick, 1200);
     }
 
+    // ---- keepalive ----
+    // The server can be run with an idle timeout so that closing this tab
+    // without sending doesn't strand it forever. Nothing else here talks to the
+    // server while you're editing — cross-turn polling only starts after a send —
+    // so without this beat a long edit would look identical to a closed tab.
+    // Keep it running after a send too: it holds the *next* turn's server open
+    // until this page reloads into it.
+    // Browsers throttle timers in background tabs (often to ~1/min), so any idle
+    // timeout must be comfortably larger than this interval.
+    function startKeepalive() {
+      setInterval(() => {
+        fetch('/ping', { cache: 'no-store' }).catch(() => { /* between turns */ });
+      }, 20000);
+    }
+    startKeepalive();
+
     function extractTurn(html) {
       // Parse the fetched document properly rather than regexing raw HTML — a
       // regex would also match the literal tag name inside this file's comments.

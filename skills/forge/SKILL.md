@@ -139,7 +139,10 @@ python3 {skill_dir}/scripts/server.py \
     --plan     {run_dir}/plan.html \
     --response {run_dir}/response.json \
     --run-id   {run_id} \
-    --port     0
+    --port     0 \
+    --turn     1 \
+    --idle-timeout 1800 \
+    --discussion-log {run_dir}/discussion.md
 ```
 
 Note the returned **background task id** (that's `task_id`). Then **Read the
@@ -158,8 +161,16 @@ python3 {skill_dir}/scripts/server.py \
     --response {run_dir}/response.json \
     --run-id   {run_id} \
     --port     {port} \
-    --no-browser
+    --no-browser \
+    --turn     {turn} \
+    --idle-timeout 1800 \
+    --discussion-log {run_dir}/discussion.md
 ```
+
+`--turn` records this turn's boundaries in `manifest.json` / `session.log`.
+`--idle-timeout` bounds the orphan-server failure mode below. `--discussion-log`
+accumulates the durable planning record; point it somewhere outside the run dir
+if the user wants the record kept alongside other work.
 
 ### Step 3 — End your turn
 
@@ -186,6 +197,14 @@ When the `<task-notification>` for this run's `task_id` reports completed, read
   "user_notes": "...", "timestamp": "..." }
 ```
 
+One other shape is possible when `--idle-timeout` is in effect — the user walked
+away without submitting:
+
+```json
+{ "run_id": "...", "action": "timeout", "error": "timeout",
+  "idle_timeout_s": <N>, "timestamp": "..." }
+```
+
 ### Step 5 — Process the response
 
 **`action == "iterate"`:**
@@ -195,10 +214,19 @@ When the `<task-notification>` for this run's `task_id` reports completed, read
 **`action == "approve"`:**
 - Regenerate the page from the approved `full_state` and save it to
   `{run_dir}/converged.html`.
+- Reconcile token usage into the manifest (see **Run metadata** below):
+  ```bash
+  python3 {skill_dir}/scripts/server.py --run-id {run_id} --reconcile-usage
+  ```
 - Tell the user: "Plan approved. Final plan saved to
   `{run_dir}/converged.html`." and give a short summary of the
   final plan in chat.
 - Exit the loop.
+
+**`action == "timeout"`:** the idle timeout fired — nobody submitted and the tab
+is gone. Do **not** start another server or regenerate the plan. Tell the user
+the session timed out, that their last plan is still at `{run_dir}/plan.html`,
+and that they can pick the run back up by asking. Then exit the loop.
 
 ## Logging
 
@@ -213,14 +241,44 @@ After every turn (including the approve), save under
 being committed. Override the location with `--run-root <dir>` if you want runs
 elsewhere.
 
+## Run metadata
+
+The server maintains three more files itself — you never write these:
+
+- **`manifest.json`** — run identity (id, planforge version + commit, python
+  version, skill dir, Claude Code session id) and one entry per turn with
+  `bind_ts` / `submit_ts` / `action` / `port`, plus token usage once reconciled.
+- **`session.log`** — append-only event timeline (`bound`, `submission`,
+  `timeout`), so per-turn wall-clock is computable without trusting file mtimes.
+- **`discussion.md`** — the durable planning record: per turn, what you proposed,
+  which sections the user edited, their before/after, and their notes.
+
+**Token accounting.** You cannot report your own usage — a message's token counts
+don't exist until after that message completes. So the server records exact turn
+boundaries live, and `--reconcile-usage` reconstructs usage afterwards from the
+Claude Code session transcript, attributing messages to turns by time window
+(`generation` = you building the plan; `parallel_chat` = conversation while the
+user edited). Run it once at approve time. Counts are stored as four separate
+components (uncached input / cache write / cache read / output) because they are
+priced differently; no price is ever recorded. If figures are unavailable or
+ambiguous the manifest says so rather than guessing — read `usage.status` and
+`usage.caveats` before quoting any number from it.
+
 ## Failure modes
 
 - **Browser didn't open** (headless / SSH): the server logs the URL to its
   output instead. Surface that URL so the user can open it manually.
 - **Server error:** if `{run_dir}/server.err` exists, read it and
   show the user the traceback.
-- **User closed the tab without sending:** the server keeps running and no
-  notification fires (v0.1.0 has no idle timeout). If the user asks to stop,
+- **User closed the tab without sending:** with `--idle-timeout` set (as above)
+  the server gives up after that many seconds of silence, writes an
+  `action: "timeout"` response and exits, so the background task completes and
+  you are woken normally — handle it per Step 5. The open page sends a `/ping`
+  keepalive every 20s, so an actively-open tab never trips the timer no matter
+  how long the user takes; only a genuinely gone tab does. Keep the timeout well
+  above 20s (background tabs can throttle timers to roughly one per minute —
+  1800s leaves ample margin). Passing `--idle-timeout 0`, or omitting it,
+  restores the old behaviour of waiting forever; then the only recourse is to
   kill the background task (`task_id`).
 - **Port busy on a later turn:** rare — `server.err` will show a bind failure.
   The server already retries briefly; if it still fails, the run's port is taken;
