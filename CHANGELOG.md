@@ -7,11 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 This file is regenerated from commit history via [git-cliff](https://git-cliff.org/) at each release.
 
+## [Unreleased]
+
+### Documentation
+
+- *(plan)* Record run-metadata design and resolve open question 5
+
+### Features
+
+- *(forge)* Add run metadata, token accounting, idle timeout, discussion log
+
 ## [0.2.0] - 2026-06-21
 
 ### Documentation
 
 - *(plan)* Mark Phase 2 complete — v0.1.0 shipped
+- Release v0.2.0 — persistent runs, diagram change coloring, UI polish
 
 ### Features
 
